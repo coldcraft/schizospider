@@ -156,10 +156,13 @@ def registrable_domain(url_or_host: str) -> str:
     host = host.split(":")[0]  # strip port
     ext = _TLD(host)
     # `top_domain_under_public_suffix` is the newer name for `registered_domain`
-    # in tldextract >= 5.2; fall back to the old attribute for older versions.
-    rd = getattr(ext, "top_domain_under_public_suffix", None) or getattr(
-        ext, "registered_domain", ""
-    )
+    # in tldextract >= 5.2. Only fall through to the deprecated attribute if
+    # the new one doesn't exist at all (older tldextract), not just because it
+    # returned an empty string — otherwise we re-trigger the deprecation warning.
+    if hasattr(ext, "top_domain_under_public_suffix"):
+        rd = ext.top_domain_under_public_suffix
+    else:
+        rd = getattr(ext, "registered_domain", "")
     if rd:
         return rd.lower()
     return host.lower()

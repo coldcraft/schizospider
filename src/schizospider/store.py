@@ -252,9 +252,6 @@ class Store:
             if not canon:
                 continue
             is_seed = same_site(canon, self.seed_url, self.host_mode)
-            if on_domain_only and not is_seed:
-                # Just record edge to the existing/new page row without enqueueing for recursion.
-                pass  # we still enqueue once so off-domain gets fetched
             rdom = registrable_domain(canon)
             cur = self._conn.execute(
                 "INSERT INTO pages "
@@ -263,14 +260,26 @@ class Store:
                 "ON CONFLICT(url_canonical) DO NOTHING",
                 (canon, resolved, rdom, 1 if is_seed else 0, QUEUED, depth, time.time()),
             )
-            dst_id: Optional[int] = cur.lastrowid if cur.rowcount else None
             if cur.rowcount:
                 new_ids.append(cur.lastrowid)
+                dst_id: Optional[int] = cur.lastrowid
             else:
+                # Row already exists. If it was previously inserted as a
+                # `skipped` graph leaf (because some off-domain page mentioned
+                # it first), promote it back to `queued` now that a stronger
+                # discovery channel — enqueue_many — wants it crawled.
                 row = self._conn.execute(
-                    "SELECT id FROM pages WHERE url_canonical=?", (canon,)
+                    "SELECT id, state FROM pages WHERE url_canonical=?",
+                    (canon,),
                 ).fetchone()
                 dst_id = row["id"] if row else None
+                if row and row["state"] == SKIPPED:
+                    self._conn.execute(
+                        "UPDATE pages SET state=?, depth=?, enqueued_at=? "
+                        "WHERE id=? AND state=?",
+                        (QUEUED, depth, time.time(), row["id"], SKIPPED),
+                    )
+                    new_ids.append(row["id"])
             if src_id is not None and dst_id is not None:
                 self._conn.execute(
                     "INSERT INTO links (src_id, dst_id, anchor_text, link_kind) "

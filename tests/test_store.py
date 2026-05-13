@@ -97,3 +97,30 @@ async def test_record_links_only_does_not_recurse_targets(store: Store):
     # inner page exists, but as skipped (won't be leased).
     assert "https://cnn.com/inner" in by_url
     assert by_url["https://cnn.com/inner"].state == "skipped"
+
+
+async def test_skipped_page_promoted_when_enqueued_later(store: Store):
+    """A page first recorded as a skipped graph-leaf (because some off-domain page
+    pointed at it) must be promoted to `queued` when an on-domain enqueue arrives.
+    Without this, real cross-references get permanently buried."""
+    # Off-domain page records a graph-leaf to some target — target ends up skipped.
+    off_src = await store.enqueue("https://other.com/", depth=1)
+    await store.record_links_only(
+        off_src,
+        [("https://target.example/page", "anchor", "a")],
+    )
+    pages = {p.url_canonical: p for p in await store.list_pages()}
+    assert pages["https://target.example/page"].state == "skipped"
+
+    # Now an on-domain page enqueues the same URL — it should be promoted.
+    on_src = await store.enqueue("https://wwwwwwwww.jodi.org/", depth=0)
+    new_ids = await store.enqueue_many(
+        [("https://target.example/page", "anchor2", "a")],
+        depth=1,
+        src_id=on_src,
+    )
+    pages = {p.url_canonical: p for p in await store.list_pages()}
+    assert pages["https://target.example/page"].state == "queued"
+    assert pages["https://target.example/page"].depth == 1
+    # The promoted row's id should be returned so callers can publish events.
+    assert pages["https://target.example/page"].id in new_ids
