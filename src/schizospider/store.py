@@ -7,7 +7,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from schizospider.events import Bus
 from schizospider.urls import canonicalize, registrable_domain, same_site

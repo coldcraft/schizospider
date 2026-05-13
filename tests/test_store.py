@@ -1,10 +1,9 @@
-import asyncio
 from pathlib import Path
 
 import pytest
 
 from schizospider.events import Bus
-from schizospider.store import DONE, IN_FLIGHT, PageRow, QUEUED, Store, FetchResult
+from schizospider.store import DONE, IN_FLIGHT, QUEUED, Store, FetchResult
 
 
 @pytest.fixture
@@ -84,7 +83,7 @@ async def test_enqueue_many_records_links(store: Store):
     assert len(new) == 2
     links = await store.list_links()
     assert len(links) == 2
-    assert all(l[0] == src for l in links)
+    assert all(link[0] == src for link in links)
 
 
 async def test_record_links_only_does_not_recurse_targets(store: Store):

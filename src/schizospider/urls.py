@@ -155,8 +155,13 @@ def registrable_domain(url_or_host: str) -> str:
     host = host.split("@")[-1]  # strip userinfo
     host = host.split(":")[0]  # strip port
     ext = _TLD(host)
-    if ext.registered_domain:
-        return ext.registered_domain.lower()
+    # `top_domain_under_public_suffix` is the newer name for `registered_domain`
+    # in tldextract >= 5.2; fall back to the old attribute for older versions.
+    rd = getattr(ext, "top_domain_under_public_suffix", None) or getattr(
+        ext, "registered_domain", ""
+    )
+    if rd:
+        return rd.lower()
     return host.lower()
 
 

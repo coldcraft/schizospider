@@ -1,5 +1,9 @@
 # schizospider
 
+[![tests](https://github.com/coldcraft/schizospider/actions/workflows/test.yml/badge.svg)](https://github.com/coldcraft/schizospider/actions/workflows/test.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 > Interactive crawler for weird/artsy websites. Spiders every page on the seed domain, follows off-domain links exactly one hop, screenshots every URL, and produces a self-contained HTML report with a screenshot grid, force-directed link graph, per-page detail views, and search/filter.
 
 Built for exploring sites like [wwwwwwwww.jodi.org](https://wwwwwwwww.jodi.org/) — frameset-heavy, JavaScript-laden, intentionally-broken net.art. Polite enough for ordinary sites too.
@@ -24,7 +28,7 @@ pip install -e .
 playwright install chromium
 ```
 
-Python 3.11+. Tested on Windows 11 and Linux. macOS should work but isn't routinely tested.
+Python 3.11+. Developed on Windows 11; Linux and macOS should work (Playwright supports them) but aren't routinely tested.
 
 ## Quick start
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import bisect
 import logging
 import time
 from collections import defaultdict, deque
@@ -11,8 +10,6 @@ from schizospider.config import Settings
 from schizospider.events import Bus
 from schizospider.fetcher import fetch, launch_browser, new_worker_context
 from schizospider.store import (
-    DONE,
-    ERROR,
     PageRow,
     Store,
     sha16,

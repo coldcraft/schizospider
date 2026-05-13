@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -24,7 +24,8 @@ class Settings:
     respect_robots: bool = False
     block_media: bool = True
     user_agent: str = (
-        "Mozilla/5.0 (compatible; schizospider/0.1; +https://github.com/local)"
+        "Mozilla/5.0 (compatible; schizospider/0.1; "
+        "+https://github.com/coldcraft/schizospider)"
     )
     max_html_bytes: int = 5 * 1024 * 1024
     max_screenshot_height_px: int = 32_000
