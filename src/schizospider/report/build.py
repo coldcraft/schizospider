@@ -142,31 +142,35 @@ async def build_report(settings: Settings, store: Store) -> Path:
         out_by_src.setdefault(src_id, []).append((dst_id, kind, anchor))
         in_by_dst.setdefault(dst_id, []).append((src_id, anchor))
 
-    # Generate thumbnails in a thread pool so build doesn't block the loop.
+    # Generate thumbnails. Run *serially* in a single dedicated thread:
+    # Pillow's WebP encoder is CPU-bound, and we're typically writing to a
+    # network filesystem where parallel Pillow encodes contend on locks and
+    # can deadlock the entire build under high page counts.
     thumbs_dir = run_dir / "thumbs"
     thumbs_dir.mkdir(exist_ok=True)
     thumb_rel_by_id: dict[int, Optional[str]] = {}
 
-    def _do_thumb(p: PageRow) -> tuple[int, Optional[str]]:
-        if not p.screenshot_path:
-            return p.id, None
-        src = run_dir / p.screenshot_path
-        if not src.exists():
-            return p.id, None
-        # Reuse sha-based name so re-runs don't regenerate.
-        thumb_name = src.stem + ".webp"
-        dst = thumbs_dir / thumb_name
-        rel = f"thumbs/{thumb_name}"
-        if dst.exists():
-            return p.id, rel
-        result = _make_thumb(src, dst)
-        return p.id, (rel if result is not None or dst.exists() else None)
+    def _do_thumbs_serial() -> None:
+        for p in pages:
+            if not p.screenshot_path:
+                continue
+            src = run_dir / p.screenshot_path
+            if not src.exists():
+                continue
+            thumb_name = src.stem + ".webp"
+            dst = thumbs_dir / thumb_name
+            rel = f"thumbs/{thumb_name}"
+            if dst.exists():
+                thumb_rel_by_id[p.id] = rel
+                continue
+            try:
+                _make_thumb(src, dst)
+                if dst.exists():
+                    thumb_rel_by_id[p.id] = rel
+            except Exception as e:
+                log.debug("thumb failed for page %d: %s", p.id, e)
 
-    # Parallelize across threads (Pillow releases the GIL during JPEG/WebP encode).
-    await asyncio.gather(
-        *(asyncio.to_thread(_do_thumb_record, p, thumb_rel_by_id, _do_thumb)
-          for p in pages if p.screenshot_path)
-    )
+    await asyncio.to_thread(_do_thumbs_serial)
 
     pages_json: list[dict[str, Any]] = []
     for p in pages:
@@ -335,8 +339,3 @@ async def build_report(settings: Settings, store: Store) -> Path:
     shutil.copytree(assets_src, assets_dst)
 
     return run_dir / "report.html"
-
-
-def _do_thumb_record(p: PageRow, mapping: dict, fn) -> None:
-    page_id, rel = fn(p)
-    mapping[page_id] = rel

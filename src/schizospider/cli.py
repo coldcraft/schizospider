@@ -95,8 +95,16 @@ async def _run_crawl(settings: Settings, use_tui: bool) -> None:
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass
         try:
-            path = await build_report(settings, store)
+            # Outer ceiling so a wedged report build (network fs lock, Pillow
+            # stuck, etc) can never trap the user in a hanging process forever.
+            path = await asyncio.wait_for(build_report(settings, store), timeout=300)
             click.echo(f"report: {path}")
+        except asyncio.TimeoutError:
+            click.echo(
+                "final report timed out (>5 min). Re-run `schizospider "
+                f"--report-only {settings.run_id}` later to retry.",
+                err=True,
+            )
         except Exception as e:
             click.echo(f"final report failed: {e}", err=True)
         try:
