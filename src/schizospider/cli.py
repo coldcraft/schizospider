@@ -58,9 +58,9 @@ async def _run_crawl(settings: Settings, use_tui: bool) -> None:
 
     try:
         if use_tui:
-            from schizospider.tui.app import SpiderApp
+            from schizospider.tui.app import Schizospider
 
-            app = SpiderApp(settings, store, bus, crawler)
+            app = Schizospider(settings, store, bus, crawler)
             try:
                 await app.run_async()
             except (KeyboardInterrupt, asyncio.CancelledError):

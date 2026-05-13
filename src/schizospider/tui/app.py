@@ -126,7 +126,9 @@ class DetailPanel(Static):
         self.update("\n".join(lines))
 
 
-class SpiderApp(App):
+class Schizospider(App):
+    TITLE = "schizospider"
+    SUB_TITLE = ""
     CSS = """
     Screen { layout: vertical; }
     CounterBar { height: 1; padding: 0 1; background: $panel; }
@@ -155,6 +157,8 @@ class SpiderApp(App):
         self._start = time.time()
         self._row_id_to_key: dict[int, str] = {}
         self._filter_text: str = ""
+        # Seed URL shows up in the Textual header next to the title.
+        self.sub_title = settings.seed
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
