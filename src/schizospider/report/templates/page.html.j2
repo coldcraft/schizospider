@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ display_title | e }} — schizospider</title>
+<link rel="stylesheet" href="../assets/report.css">
+</head>
+<body class="detail">
+
+<header class="topbar">
+  <a class="brand" href="../report.html">← schizospider</a>
+  <div class="seed">seed: <a href="{{ meta.seed }}" target="_blank" rel="noopener">{{ meta.seed }}</a></div>
+</header>
+
+<article class="page-detail">
+  <h1>{{ display_title | e }}</h1>
+  <p class="page-url"><a href="{{ page.url_canonical }}" target="_blank" rel="noopener">{{ page.url_canonical }}</a></p>
+
+  <table class="meta-table">
+    <tr><th>Status</th><td>{{ page.http_status if page.http_status is not none else "—" }}</td></tr>
+    <tr><th>State</th><td>{{ page.state }}</td></tr>
+    <tr><th>Depth</th><td>{% if page.state == "skipped" %}—{% else %}{{ page.depth }}{% endif %}</td></tr>
+    <tr><th>Domain</th><td>{{ page.registrable_domain }} {% if page.is_seed_domain %}(on-domain){% else %}(off-domain){% endif %}</td></tr>
+    <tr><th>Content-Type</th><td>{{ page.content_type or "—" }}</td></tr>
+    {% if page.error %}<tr><th>Error</th><td class="err">{{ page.error | e }}</td></tr>{% endif %}
+  </table>
+
+  {% if screenshot %}
+  <section>
+    <h2>Screenshot</h2>
+    <a href="{{ screenshot }}" target="_blank" rel="noopener"><img class="full-shot" src="{{ screenshot }}" alt="screenshot"></a>
+  </section>
+  {% endif %}
+
+  {% if captured_html_path %}
+  <section>
+    <h2>Captured page</h2>
+    <p class="muted" style="font-size:12px">
+      Rendered with scripts disabled (CSP <code>script-src 'none'</code>) and
+      <code>&lt;base href&gt;</code> pointing at the original site so framesets / images load.
+      Won't run the hostile-art JS — frameset structure and image-based content only.
+    </p>
+    <div class="section-actions">
+      <button type="button" id="btn-render">render sandboxed HTML in iframe</button>
+      <a href="{{ captured_html_path }}" target="_blank" rel="noopener"><button type="button">open sandboxed copy in new tab</button></a>
+      {% if captured_html_raw_path %}
+      <a href="{{ captured_html_raw_path }}" target="_blank" rel="noopener" title="raw captured HTML — opening it lets jodi's scripts run unrestricted, may misbehave"><button type="button" style="border-color:#ff6b6b;color:#ff6b6b">raw capture ⚠</button></a>
+      {% endif %}
+    </div>
+    <div id="iframe-host"></div>
+    <script>
+      document.getElementById("btn-render").addEventListener("click", function() {
+        var host = document.getElementById("iframe-host");
+        if (host.firstChild) { host.replaceChildren(); return; }
+        var f = document.createElement("iframe");
+        f.className = "captured-iframe";
+        f.sandbox = "allow-same-origin";
+        f.src = "{{ captured_html_path }}";
+        host.appendChild(f);
+      });
+    </script>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>Outbound links ({{ outbound|length }})</h2>
+    {% if outbound %}
+    <ul class="link-list">
+      {% for o in outbound %}
+      <li>
+        <span class="chip {% if o.skipped %}skip{% elif o.is_seed %}on{% else %}off{% endif %}">{% if o.skipped %}skip{% else %}{{ "on" if o.is_seed else "off" }}{% endif %}</span>
+        <span class="kind">{{ o.kind }}</span>
+        {% if o.detail_path %}
+        <a href="{{ o.detail_path }}">{{ o.title | e }}</a>
+        {% else %}
+        <a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.title | e }}</a>
+        {% endif %}
+        <span class="anchor">{{ o.anchor | e }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">none.</p>{% endif %}
+  </section>
+
+  <section>
+    <h2>Inbound links ({{ inbound|length }})</h2>
+    {% if inbound %}
+    <ul class="link-list">
+      {% for i in inbound %}
+      <li>
+        <span class="chip {% if i.is_seed %}on{% else %}off{% endif %}">{{ "on" if i.is_seed else "off" }}</span>
+        {% if i.detail_path %}
+        <a href="{{ i.detail_path }}">{{ i.title | e }}</a>
+        {% else %}
+        <a href="{{ i.url }}" target="_blank" rel="noopener">{{ i.title | e }}</a>
+        {% endif %}
+        <span class="anchor">{{ i.anchor | e }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">none.</p>{% endif %}
+  </section>
+
+  {% if page.headers_json %}
+  <section>
+    <h2>Response headers</h2>
+    <pre class="headers">{{ page.headers_json | e }}</pre>
+  </section>
+  {% endif %}
+
+  {% if captured_html %}
+  <section>
+    <h2>Captured HTML source</h2>
+    <details><summary>show source ({{ captured_html|length }} chars)</summary>
+      <pre class="html-src">{{ captured_html | e }}</pre>
+    </details>
+  </section>
+  {% endif %}
+</article>
+
+</body>
+</html>

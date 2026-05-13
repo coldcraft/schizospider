@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>schizospider — {{ meta.seed }}</title>
+<link rel="stylesheet" href="assets/report.css">
+<script src="assets/vis-network.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">schizospider</div>
+  <div class="seed">seed: <a href="{{ meta.seed }}" target="_blank" rel="noopener">{{ meta.seed }}</a></div>
+  <div class="counts">
+    <span id="ct-fetched">…</span> fetched ·
+    <span id="ct-err">…</span> err ·
+    <span id="ct-skipped">…</span> off-domain ·
+    <span id="ct-links">…</span> links ·
+    <span id="ct-domain">{{ meta.seed_domain }}</span>
+  </div>
+  <nav class="viewtabs">
+    <button class="tab active" data-view="grid">Grid</button>
+    <button class="tab" data-view="graph">Graph</button>
+  </nav>
+</header>
+
+<section class="filters">
+  <input id="q" type="search" placeholder="search title / url / domain …" />
+  <label><input type="checkbox" id="f-on" checked> on-domain</label>
+  <label><input type="checkbox" id="f-off"> off-domain</label>
+  <label><input type="checkbox" id="f-skipped"> include uncrawled</label>
+  <select id="f-status">
+    <option value="">any status</option>
+    <option value="2xx">2xx</option>
+    <option value="3xx">3xx</option>
+    <option value="4xx">4xx</option>
+    <option value="5xx">5xx</option>
+    <option value="err">errored</option>
+  </select>
+  <label>depth ≤ <input id="f-depth" type="number" min="0" max="99" placeholder="any" style="width:5em"></label>
+  <span class="hits"><span id="hit-count">0</span> matches</span>
+  <button id="copy-urls" type="button" title="copy URLs of filtered results to clipboard">copy urls</button>
+</section>
+
+<main>
+  <section id="view-grid" class="view active">
+    <div id="grid" class="grid"></div>
+  </section>
+  <section id="view-graph" class="view">
+    <div id="graph"></div>
+    <div id="graph-legend">
+      <span class="legend-dot dot-seed"></span> on-domain
+      <span class="legend-dot dot-off"></span> off-domain
+      <span class="legend-dot dot-err"></span> errored
+      <span class="legend-dot dot-skip"></span> uncrawled
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="data.js"></script>
+<script src="assets/report.js"></script>
+<script src="assets/graph.js"></script>
+</body>
+</html>
