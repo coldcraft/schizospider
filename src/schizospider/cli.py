@@ -236,11 +236,18 @@ def main(
         click.echo(f"max:      {settings.max_pages} pages")
     click.echo("")
 
+    exit_code = 0
     try:
         asyncio.run(_run_crawl(settings, use_tui=not no_tui))
     except KeyboardInterrupt:
         click.echo("interrupted", err=True)
-        sys.exit(130)
+        exit_code = 130
+    # Playwright's subprocess transports on Windows linger past asyncio.run()
+    # returning, leaving the Python process alive with nothing actionable to do.
+    # Once the report is built and the store is closed, force-exit so the user
+    # gets their shell prompt back instead of staring at a frozen terminal.
+    import os
+    os._exit(exit_code)
 
 
 if __name__ == "__main__":
