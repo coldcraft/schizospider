@@ -4,6 +4,23 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+# Hosts whose preview pages typically invoke a native protocol handler on the
+# OS (e.g. Discord's preview JS calls `discord://invite/...`), which Windows
+# will then route to the installed desktop app even from headless Chromium.
+# Fetching these is rarely useful and surprises users with popups. Default-deny.
+DEFAULT_BLOCKED_HOSTS: tuple[str, ...] = (
+    "discord.gg",
+    "discord.com",       # discord.com/invite/<code>
+    "discordapp.com",
+    "t.me",              # Telegram invites
+    "telegram.me",
+    "telegram.org",
+    "join.skype.com",
+    "zoom.us",           # zoom.us/j/<id> → zoommtg:// launch
+    "teams.microsoft.com",
+    "slack.com",         # workspace.slack.com slack:// launches
+)
+
 
 def default_run_id(seed: str) -> str:
     from urllib.parse import urlsplit
@@ -31,6 +48,21 @@ class Settings:
     max_screenshot_height_px: int = 32_000
     headless: bool = True
     max_pages: int = 0  # 0 = unlimited
+    # Hosts to skip outright (URL never enqueued). Default includes Discord /
+    # Telegram / Zoom / Slack invite domains, which trigger OS protocol-handler
+    # popups even when fetched from headless Chromium.
+    blocked_hosts: tuple[str, ...] = DEFAULT_BLOCKED_HOSTS
+
+    def is_host_blocked(self, host: str) -> bool:
+        """Return True if `host` is on the blocklist (exact or subdomain match)."""
+        if not host or not self.blocked_hosts:
+            return False
+        host = host.lower()
+        for blocked in self.blocked_hosts:
+            b = blocked.lower()
+            if host == b or host.endswith("." + b):
+                return True
+        return False
 
     @property
     def run_dir(self) -> Path:

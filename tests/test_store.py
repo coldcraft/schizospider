@@ -99,6 +99,50 @@ async def test_record_links_only_does_not_recurse_targets(store: Store):
     assert by_url["https://cnn.com/inner"].state == "skipped"
 
 
+async def test_blocked_hosts_are_skipped_never_queued(tmp_path):
+    """URLs whose host is on the blocklist must never reach state=queued.
+
+    Discord/Telegram/etc invite URLs trigger OS protocol-handler popups when
+    fetched by headless Chromium — they must be recorded as graph edges but
+    never actually visited.
+    """
+    db = tmp_path / "db.sqlite"
+    s = Store(
+        db,
+        seed_url="https://example.org/",
+        host_mode="registrable",
+        bus=Bus(),
+        blocked_hosts=("discord.gg", "discord.com"),
+    )
+    await s.open()
+    src = await s.enqueue("https://example.org/", depth=0)
+    new_ids = await s.enqueue_many(
+        [
+            ("https://discord.gg/AbCdEf", "join us", "a"),
+            ("https://discord.com/invite/XyZ", "invite", "a"),
+            ("https://images.discordapp.com/asset.png", "image", "a"),
+            ("https://example.org/inner", "ok", "a"),
+        ],
+        depth=1,
+        src_id=src,
+    )
+    pages = {p.url_canonical: p for p in await s.list_pages()}
+    assert pages["https://discord.gg/AbCdEf"].state == "skipped"
+    assert pages["https://discord.com/invite/XyZ"].state == "skipped"
+    # Subdomain match still blocks (images.discordapp.com -> discordapp.com).
+    # (Only true if discordapp.com is on the list — not in this test, so it must be queued.)
+    assert pages["https://images.discordapp.com/asset.png"].state == "queued"
+    # On-domain (or unrelated) URL still gets queued normally.
+    assert pages["https://example.org/inner"].state == "queued"
+    # The blocked targets are NOT in new_ids — they aren't pending work.
+    blocked_ids = {
+        pages["https://discord.gg/AbCdEf"].id,
+        pages["https://discord.com/invite/XyZ"].id,
+    }
+    assert not (blocked_ids & set(new_ids))
+    await s.close()
+
+
 async def test_skipped_page_promoted_when_enqueued_later(store: Store):
     """A page first recorded as a skipped graph-leaf (because some off-domain page
     pointed at it) must be promoted to `queued` when an on-domain enqueue arrives.

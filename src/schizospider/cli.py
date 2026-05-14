@@ -26,10 +26,11 @@ def _make_settings(
     block_media: bool,
     headless: bool,
     max_pages: int = 0,
+    blocked_hosts: tuple[str, ...] = (),
 ) -> Settings:
     rid = run_id or default_run_id(seed)
     out_root = Path(out).resolve()
-    return Settings(
+    kwargs = dict(
         seed=seed,
         run_id=rid,
         out_root=out_root,
@@ -41,13 +42,20 @@ def _make_settings(
         headless=headless,
         max_pages=max_pages,
     )
+    if blocked_hosts:
+        kwargs["blocked_hosts"] = blocked_hosts
+    return Settings(**kwargs)
 
 
 async def _run_crawl(settings: Settings, use_tui: bool) -> None:
     settings.ensure_dirs()
     bus = Bus()
     store = Store(
-        settings.db_path, seed_url=settings.seed, host_mode=settings.host_mode, bus=bus
+        settings.db_path,
+        seed_url=settings.seed,
+        host_mode=settings.host_mode,
+        bus=bus,
+        blocked_hosts=settings.blocked_hosts,
     )
     await store.open()
     await store.set_meta("seed", settings.seed)
@@ -218,6 +226,20 @@ async def _rescan_html(run_id: str, out: str, strict_host: bool) -> None:
     help="Stop after this many pages have been completed (0 = unlimited).",
 )
 @click.option(
+    "--block-host",
+    multiple=True,
+    metavar="HOST",
+    help="Additional host(s) to skip (repeatable). Matches exact host or any "
+    "subdomain. Default block list already includes discord.gg, t.me, zoom.us, "
+    "slack.com, etc. — sites whose preview pages invoke OS protocol handlers.",
+)
+@click.option(
+    "--no-default-blocklist",
+    is_flag=True,
+    default=False,
+    help="Don't apply the built-in blocklist (use only hosts from --block-host).",
+)
+@click.option(
     "--report-only",
     default=None,
     help="Skip crawling: just (re)build the HTML report for the given run-id.",
@@ -242,6 +264,8 @@ def main(
     no_tui: bool,
     headed: bool,
     max_pages: int,
+    block_host: tuple[str, ...],
+    no_default_blocklist: bool,
     report_only: Optional[str],
     rescan_html: Optional[str],
     verbose: bool,
@@ -304,6 +328,16 @@ def main(
         click.echo("error: --seed is required (or use --report-only).", err=True)
         sys.exit(2)
 
+    # Compose effective blocklist: built-in defaults (unless suppressed) plus
+    # any user-supplied --block-host values.
+    from schizospider.config import DEFAULT_BLOCKED_HOSTS
+    effective_blocked: tuple[str, ...] = tuple(
+        sorted({
+            *( () if no_default_blocklist else DEFAULT_BLOCKED_HOSTS ),
+            *(h.lower().strip() for h in block_host if h.strip()),
+        })
+    )
+
     settings = _make_settings(
         seed=seed,
         run_id=run_id,
@@ -315,6 +349,7 @@ def main(
         block_media=block_media,
         headless=not headed,
         max_pages=max_pages,
+        blocked_hosts=effective_blocked,
     )
 
     click.echo(f"seed:     {settings.seed}")
@@ -324,6 +359,8 @@ def main(
     click.echo(f"host:     {settings.host_mode}")
     if settings.max_pages > 0:
         click.echo(f"max:      {settings.max_pages} pages")
+    if settings.blocked_hosts:
+        click.echo(f"blocked:  {len(settings.blocked_hosts)} hosts ({', '.join(settings.blocked_hosts[:5])}{'...' if len(settings.blocked_hosts) > 5 else ''})")
     click.echo("")
 
     exit_code = 0

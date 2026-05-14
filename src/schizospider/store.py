@@ -122,14 +122,35 @@ class Store:
     cleaner ordering by funneling writes through one connection.
     """
 
-    def __init__(self, db_path: Path, seed_url: str, host_mode: str, bus: Optional[Bus] = None):
+    def __init__(
+        self,
+        db_path: Path,
+        seed_url: str,
+        host_mode: str,
+        bus: Optional[Bus] = None,
+        blocked_hosts: tuple[str, ...] = (),
+    ):
         self.db_path = db_path
         self.seed_url = seed_url
         self.seed_registrable = registrable_domain(seed_url)
         self.host_mode = host_mode
         self.bus = bus
+        self.blocked_hosts = tuple(h.lower() for h in blocked_hosts)
         self._lock = asyncio.Lock()
         self._conn: Optional[sqlite3.Connection] = None
+
+    def _is_host_blocked(self, url: str) -> bool:
+        if not self.blocked_hosts:
+            return False
+        from urllib.parse import urlsplit
+
+        host = urlsplit(url).netloc.split("@")[-1].split(":")[0].lower()
+        if not host:
+            return False
+        for blocked in self.blocked_hosts:
+            if host == blocked or host.endswith("." + blocked):
+                return True
+        return False
 
     # ---------- lifecycle ----------
 
@@ -201,14 +222,18 @@ class Store:
         assert self._conn
         is_seed = 1 if same_site(canon, self.seed_url, self.host_mode) else 0
         rdom = registrable_domain(canon)
+        if self._is_host_blocked(canon):
+            state, depth_val = SKIPPED, 99
+        else:
+            state, depth_val = QUEUED, depth
         cur = self._conn.execute(
             "INSERT INTO pages "
             "(url_canonical, url_original, registrable_domain, is_seed_domain, state, depth, enqueued_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(url_canonical) DO NOTHING",
-            (canon, original, rdom, is_seed, QUEUED, depth, time.time()),
+            (canon, original, rdom, is_seed, state, depth_val, time.time()),
         )
-        if cur.rowcount == 0:
+        if cur.rowcount == 0 or state == SKIPPED:
             return None
         return cur.lastrowid
 
@@ -253,27 +278,40 @@ class Store:
                 continue
             is_seed = same_site(canon, self.seed_url, self.host_mode)
             rdom = registrable_domain(canon)
+            # Hosts on the blocklist (e.g. discord.gg) become skipped nodes —
+            # we record the graph edge so the user can see "this page linked
+            # there" but the URL is never fetched, avoiding OS protocol-handler
+            # popups when an invite page is loaded in headless Chromium.
+            initial_state = SKIPPED if self._is_host_blocked(canon) else QUEUED
+            initial_depth = 99 if initial_state == SKIPPED else depth
             cur = self._conn.execute(
                 "INSERT INTO pages "
                 "(url_canonical, url_original, registrable_domain, is_seed_domain, state, depth, enqueued_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(url_canonical) DO NOTHING",
-                (canon, resolved, rdom, 1 if is_seed else 0, QUEUED, depth, time.time()),
+                (canon, resolved, rdom, 1 if is_seed else 0, initial_state, initial_depth, time.time()),
             )
-            if cur.rowcount:
+            if cur.rowcount and initial_state == QUEUED:
                 new_ids.append(cur.lastrowid)
                 dst_id: Optional[int] = cur.lastrowid
+            elif cur.rowcount:
+                dst_id = cur.lastrowid
             else:
                 # Row already exists. If it was previously inserted as a
                 # `skipped` graph leaf (because some off-domain page mentioned
                 # it first), promote it back to `queued` now that a stronger
                 # discovery channel — enqueue_many — wants it crawled.
+                # Exception: host-blocked URLs stay skipped no matter what.
                 row = self._conn.execute(
                     "SELECT id, state FROM pages WHERE url_canonical=?",
                     (canon,),
                 ).fetchone()
                 dst_id = row["id"] if row else None
-                if row and row["state"] == SKIPPED:
+                if (
+                    row
+                    and row["state"] == SKIPPED
+                    and initial_state == QUEUED  # not host-blocked
+                ):
                     self._conn.execute(
                         "UPDATE pages SET state=?, depth=?, enqueued_at=? "
                         "WHERE id=? AND state=?",

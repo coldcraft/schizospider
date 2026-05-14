@@ -51,6 +51,14 @@ schizospider --report-only my-run
 
 Output goes to `out/<run-id>/`. Open `out/<run-id>/report.html` in a browser when you're done — no dev server required.
 
+## The live TUI
+
+While the crawler runs, the Textual TUI shows you exactly what's happening — counters, per-worker activity, p50/p95 fetch times, a clickable URL list with a detail panel, and the log tail.
+
+![TUI explorer](docs/screenshots/tui.png)
+
+Hit `r` mid-run to build the HTML report from whatever you've collected so far. Hit `q` to quit cleanly — the crawler stops, the report builds one last time, and the process exits.
+
 ## The HTML report
 
 Grid view (thumbnails, searchable, filterable by domain / status / depth):
