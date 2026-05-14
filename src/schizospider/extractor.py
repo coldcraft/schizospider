@@ -36,6 +36,10 @@ _HARVEST_JS = r"""
     for (const f of document.querySelectorAll("form[action]")) {
         push(f.getAttribute("action"), "form-submit", "form");
     }
+    // HTML5 per-button form action override: <input formaction>, <button formaction>.
+    for (const f of document.querySelectorAll("input[formaction], button[formaction]")) {
+        push(f.getAttribute("formaction"), "form-submit", "form");
+    }
     for (const l of document.querySelectorAll("link[rel='alternate'][href], link[rel='canonical'][href]")) {
         push(l.getAttribute("href"), l.getAttribute("rel"), "link");
     }
@@ -52,7 +56,28 @@ _HARVEST_JS = r"""
         const txt = s.textContent || "";
         if (txt.length < 4000) scripts.push(txt);
     }
-    return {links: out, scripts: scripts, frame_url: location.href, title: document.title || ""};
+    // Inline event handlers — they often contain URLs:
+    //   <a onclick="location.href='foo.html'">
+    //   <input onclick="window.open('next.html')">
+    // We append their values to `scripts` so the same JS-URL regex picks them up.
+    for (const el of document.querySelectorAll(
+        "[onclick], [onmouseover], [onmouseup], [onmousedown], " +
+        "[onsubmit], [onchange], [onload], [onkeyup], [onkeypress]"
+    )) {
+        for (const a of el.attributes) {
+            if (a.name.toLowerCase().startsWith("on") && a.value && a.value.length < 1000) {
+                scripts.push(a.value);
+            }
+        }
+    }
+    // Honor <base href="..."> for resolving relative URLs in this frame.
+    // baseEl.href returns the fully-resolved absolute URL when one is set.
+    let base_href = location.href;
+    const baseEl = document.querySelector("base[href]");
+    if (baseEl) {
+        try { base_href = baseEl.href || base_href; } catch (e) {}
+    }
+    return {links: out, scripts: scripts, frame_url: base_href, title: document.title || ""};
 }
 """
 
@@ -147,6 +172,21 @@ def extract_from_html(html: str, base_url: str) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str]] = set()
 
+    # Honor <base href="..."> when present — affects how every relative URL
+    # in this document resolves. Crucially we do NOT canonicalize the base URL
+    # here: canonicalize strips trailing slashes, which silently breaks
+    # urljoin semantics (`/sub/` vs `/sub` resolve relative URLs differently).
+    base_rx = re.compile(r"""<base\b[^>]*?\bhref\s*=\s*(['"])(.*?)\1""", re.I)
+    bm = base_rx.search(html)
+    if bm:
+        from urllib.parse import urljoin as _urljoin
+        candidate = (bm.group(2) or "").strip()
+        if candidate:
+            try:
+                base_url = _urljoin(base_url, candidate)
+            except Exception:
+                pass
+
     # Use backreference so the captured attribute value can contain the *other* quote type
     # (e.g. <a href="javascript:window.open('foo.html')">).
     a_rx     = re.compile(r"""<a\b[^>]*?\bhref\s*=\s*(['"])(.*?)\1[^>]*?>(.*?)</a>""", re.I | re.S)
@@ -154,6 +194,15 @@ def extract_from_html(html: str, base_url: str) -> list[tuple[str, str, str]]:
     frame_rx = re.compile(r"""<frame\b[^>]*?\bsrc\s*=\s*(['"])(.*?)\1""", re.I)
     iframe_rx = re.compile(r"""<iframe\b[^>]*?\bsrc\s*=\s*(['"])(.*?)\1""", re.I)
     form_rx  = re.compile(r"""<form\b[^>]*?\baction\s*=\s*(['"])(.*?)\1""", re.I)
+    formaction_rx = re.compile(
+        r"""<(?:input|button)\b[^>]*?\bformaction\s*=\s*(['"])(.*?)\1""", re.I
+    )
+    # Event handler attribute values often contain navigation URLs.
+    on_rx = re.compile(
+        r"""\bon(?:click|mouseover|mouseup|mousedown|submit|change|load|keyup|keypress)"""
+        r"""\s*=\s*(['"])(.*?)\1""",
+        re.I | re.S,
+    )
 
     for m in a_rx.finditer(html):
         _absorb(m.group(2), _strip_tags(m.group(3)), "a", base_url, seen, out)
@@ -165,6 +214,11 @@ def extract_from_html(html: str, base_url: str) -> list[tuple[str, str, str]]:
         _absorb(m.group(2), "", "iframe", base_url, seen, out)
     for m in form_rx.finditer(html):
         _absorb(m.group(2), "form-submit", "form", base_url, seen, out)
+    for m in formaction_rx.finditer(html):
+        _absorb(m.group(2), "form-submit", "form", base_url, seen, out)
+    for m in on_rx.finditer(html):
+        for js_url in extract_js_urls(m.group(2)):
+            _absorb(js_url, "(on*)", "js", base_url, seen, out)
 
     # Inline <script> bodies. extract_js_urls also catches form-action literals
     # inside the body (used by jodi-style document.write navigation).

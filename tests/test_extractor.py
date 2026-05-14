@@ -76,3 +76,47 @@ def test_form_action_extracted_from_dom_and_script():
     assert "http://example.com/w1.html" in urls
     assert "http://example.com/w2.html" in urls
     assert "http://example.com/w3.html" in urls
+
+
+def test_onclick_attribute_values_are_scanned_for_urls():
+    """Inline event-handler attributes are a common navigation pattern,
+    especially in jodi-era pages: <input onclick="location.replace('next.html')">"""
+    html = """
+    <html><body>
+      <input type="radio" onclick="location.replace('next1.html')">
+      <input type="radio" onclick="location.replace('next2.html')">
+      <button onmouseover="window.open('hover.html')">hover</button>
+      <a onclick="location.href='click-target.html'">x</a>
+    </body></html>
+    """
+    out = extract_from_html(html, "http://example.com/")
+    urls = [u for u, _, _ in out]
+    assert "http://example.com/next1.html" in urls
+    assert "http://example.com/next2.html" in urls
+    assert "http://example.com/hover.html" in urls
+    assert "http://example.com/click-target.html" in urls
+
+
+def test_base_href_changes_relative_resolution():
+    """<base href="..."> overrides the document's base URL for relative links."""
+    html = """
+    <html><head><base href="http://other.example/sub/"></head>
+    <body><a href="page.html">x</a></body></html>
+    """
+    out = extract_from_html(html, "http://document-served-from.example/")
+    urls = [u for u, _, _ in out]
+    # Without <base>, would resolve to document-served-from.example/page.html.
+    # With <base>, must resolve to other.example/sub/page.html.
+    assert "http://other.example/sub/page.html" in urls
+
+
+def test_html5_formaction_override():
+    html = """<form action="default.html">
+      <button type="submit" formaction="alt1.html">a</button>
+      <input type="submit" formaction="alt2.html">
+    </form>"""
+    out = extract_from_html(html, "http://example.com/")
+    urls = [u for u, _, _ in out]
+    assert "http://example.com/default.html" in urls
+    assert "http://example.com/alt1.html" in urls
+    assert "http://example.com/alt2.html" in urls
