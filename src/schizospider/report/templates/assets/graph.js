@@ -74,12 +74,15 @@
       { nodes, edges },
       {
         physics: {
+          enabled: true,
           stabilization: { iterations: stab, fit: true },
           barnesHut: {
             gravitationalConstant: heavy ? -2200 : -3000,
             springLength: heavy ? 140 : 110,
             springConstant: 0.035,
-            damping: 0.4,
+            // Over-damped so the system settles fast when perturbed but
+            // still gives the satisfying "ripple from a dragged node" feel.
+            damping: 0.7,
             avoidOverlap: 0.1,
           },
         },
@@ -89,15 +92,36 @@
           multiselect: false,
           navigationButtons: true,
           keyboard: false,
+          dragNodes: true,
         },
         nodes: { borderWidth: 1 },
         edges: { width: 0.6 },
       }
     );
 
-    network.once("stabilizationIterationsDone", () => {
-      network.setOptions({ physics: { enabled: false } });
-    });
+    // Performance protocol on big graphs:
+    //   - Run physics during initial stabilization (so layout is force-directed).
+    //   - Pause the simulation once it settles to keep idle CPU at zero.
+    //   - Resume on every user interaction (drag, zoom, click on background)
+    //     so neighboring nodes actually ripple when you grab one.
+    //   - Re-pause shortly after the last interaction so we don't spin forever.
+    let pauseTimer = null;
+    const wake = () => {
+      if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
+      try { network.startSimulation(); } catch (e) {}
+    };
+    const drowse = (after = 2000) => {
+      if (pauseTimer) clearTimeout(pauseTimer);
+      pauseTimer = setTimeout(() => {
+        try { network.stopSimulation(); } catch (e) {}
+      }, after);
+    };
+
+    network.once("stabilizationIterationsDone", () => drowse(500));
+    network.on("dragStart", wake);
+    network.on("dragEnd", () => drowse(1500));
+    network.on("zoom", () => { wake(); drowse(800); });
+    network.on("click", () => { wake(); drowse(1500); });
 
     network.on("doubleClick", (params) => {
       if (params.nodes && params.nodes.length) {
