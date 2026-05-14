@@ -72,7 +72,11 @@
     filtered = DATA.pages.filter(applyFilters);
     hitCount.textContent = filtered.length;
     renderGrid();
-    window.dispatchEvent(new CustomEvent("schizo:filter", {detail: new Set(filtered.map(p => p.id))}));
+    // Stash the current filter set on window so the graph view (which boots
+    // lazily on tab-switch) can pick it up — otherwise it'd render every node.
+    const ids = new Set(filtered.map(p => p.id));
+    window.__SCHIZO_FILTER_IDS__ = ids;
+    window.dispatchEvent(new CustomEvent("schizo:filter", {detail: ids}));
   }
 
   function renderGrid() {

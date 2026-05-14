@@ -28,7 +28,21 @@
       return;
     }
 
-    const nodeList = DATA.pages.map((p) => ({
+    // Pre-filter at construction time so physics only runs on the nodes
+    // we actually want to see. report.js stashes the current filter set
+    // on window.__SCHIZO_FILTER_IDS__ whenever it refreshes.
+    const filterSet = window.__SCHIZO_FILTER_IDS__ || null;
+    const inFilter = (id) => (filterSet ? filterSet.has(id) : true);
+
+    const visiblePages = filterSet
+      ? DATA.pages.filter((p) => inFilter(p.id))
+      : DATA.pages;
+    const visiblePageIds = new Set(visiblePages.map((p) => p.id));
+    const visibleLinks = DATA.links.filter(
+      (l) => visiblePageIds.has(l.src) && visiblePageIds.has(l.dst)
+    );
+
+    const nodeList = visiblePages.map((p) => ({
       id: p.id,
       label: shortLabel(p),
       title: tooltipFor(p),
@@ -37,10 +51,8 @@
       shape: p.state === "skipped" ? "diamond" : (p.screenshot ? "dot" : "square"),
       size: 6 + Math.min(18, p.in_count),
       url: p.detail_path,
-      _is_seed: p.is_seed,
-      _state: p.state,
     }));
-    const edgeList = DATA.links.map((l, i) => ({
+    const edgeList = visibleLinks.map((l, i) => ({
       id: i,
       from: l.src,
       to: l.dst,
@@ -83,7 +95,6 @@
       }
     );
 
-    // Stop physics once layout settles — keeps interaction snappy.
     network.once("stabilizationIterationsDone", () => {
       network.setOptions({ physics: { enabled: false } });
     });
@@ -94,9 +105,6 @@
         if (node && node.url) window.location.href = node.url;
       }
     });
-
-    // Initial filter sync.
-    applyCurrentFilter();
   }
 
   function shortLabel(p) {
@@ -104,33 +112,70 @@
     return s.length > 26 ? s.slice(0, 25) + "…" : s;
   }
 
-  function applyCurrentFilter() {
+  // Live filter updates: when the user toggles a filter while already on the
+  // graph view, rebuild the DataSets in place rather than constructing a new
+  // Network (which would discard the user's pan/zoom).
+  function rebuildForFilter(filterIds) {
+    if (!network || !nodes || !edges) return;
     const DATA = window.__SCHIZO_DATA__;
-    if (!nodes || !edges || !DATA) return;
-    // The grid view's filter set is authoritative; the graph mirrors it.
-    const evt = new CustomEvent("schizo:filter-request");
-    window.dispatchEvent(evt);
-  }
+    if (!DATA) return;
+    const visibleIds = new Set();
+    for (const p of DATA.pages) {
+      if (!filterIds || filterIds.has(p.id)) visibleIds.add(p.id);
+    }
+    // Remove nodes that are no longer visible, add ones that just became visible.
+    const currentNodeIds = new Set(nodes.getIds());
+    const toRemove = [];
+    for (const id of currentNodeIds) {
+      if (!visibleIds.has(id)) toRemove.push(id);
+    }
+    if (toRemove.length) nodes.remove(toRemove);
+    const toAdd = [];
+    for (const p of DATA.pages) {
+      if (visibleIds.has(p.id) && !currentNodeIds.has(p.id)) {
+        toAdd.push({
+          id: p.id,
+          label: shortLabel(p),
+          title: tooltipFor(p),
+          color: { background: colorFor(p), border: "#2a2a30" },
+          font: { color: "#e7e7ea", size: 11 },
+          shape: p.state === "skipped" ? "diamond" : (p.screenshot ? "dot" : "square"),
+          size: 6 + Math.min(18, p.in_count),
+          url: p.detail_path,
+        });
+      }
+    }
+    if (toAdd.length) nodes.add(toAdd);
 
-  function applyFilter(visibleIds) {
-    if (!nodes || !edges) return;
-    const visibleSet = visibleIds;
-    const update = [];
-    nodes.forEach((n) => {
-      const hidden = !visibleSet.has(n.id);
-      if (n.hidden !== hidden) update.push({ id: n.id, hidden });
+    // Edges: remove any whose endpoints aren't both visible, add new ones.
+    const visibleEdges = new Map();
+    DATA.links.forEach((l, i) => {
+      if (visibleIds.has(l.src) && visibleIds.has(l.dst)) visibleEdges.set(i, l);
     });
-    if (update.length) nodes.update(update);
-    const eUpdate = [];
-    edges.forEach((e) => {
-      const hidden = !(visibleSet.has(e.from) && visibleSet.has(e.to));
-      if (e.hidden !== hidden) eUpdate.push({ id: e.id, hidden });
-    });
-    if (eUpdate.length) edges.update(eUpdate);
+    const currentEdgeIds = new Set(edges.getIds());
+    const eRemove = [];
+    for (const id of currentEdgeIds) {
+      if (!visibleEdges.has(id)) eRemove.push(id);
+    }
+    if (eRemove.length) edges.remove(eRemove);
+    const eAdd = [];
+    for (const [i, l] of visibleEdges) {
+      if (!currentEdgeIds.has(i)) {
+        eAdd.push({
+          id: i,
+          from: l.src,
+          to: l.dst,
+          arrows: { to: { enabled: true, scaleFactor: 0.4 } },
+          color: { color: "#3a3a45", opacity: 0.5 },
+          smooth: false,
+        });
+      }
+    }
+    if (eAdd.length) edges.add(eAdd);
   }
 
   window.addEventListener("schizo:graph-show", boot);
   window.addEventListener("schizo:filter", (e) => {
-    if (network) applyFilter(e.detail);
+    if (booted) rebuildForFilter(e.detail);
   });
 })();
