@@ -66,6 +66,21 @@ def test_extract_js_urls():
     assert "a.html" in out and "b.html" in out
 
 
+def test_extract_js_urls_picks_up_form_action_in_script_body():
+    """jodi.org uses document.write to emit one of N <form action='wN.html'>
+    elements at random — we want to find ALL the alternates so the crawler
+    doesn't have to depend on which one the random pick chose."""
+    js = """
+    if (x > .95) document.write("<form action='w1.html'><input TYPE='submit'></form>");
+    if (x > .85) document.write("<form action='w2.html'><input TYPE='submit'></form>");
+    if (x > .75) document.write('<form action="w3.html"><input TYPE="submit"></form>');
+    """
+    out = extract_js_urls(js)
+    assert "w1.html" in out
+    assert "w2.html" in out
+    assert "w3.html" in out
+
+
 def test_extract_meta_refresh():
     assert extract_meta_refresh("5; url=foo.html") == "foo.html"
     assert extract_meta_refresh("0;URL='bar.html'") == "bar.html"

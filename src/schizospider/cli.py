@@ -120,6 +120,76 @@ async def _console_printer(sub) -> None:
             click.echo(str(ev.payload))
 
 
+async def _rescan_html(run_id: str, out: str, strict_host: bool) -> None:
+    """Re-extract links from already-captured pages/<sha>.html and enqueue new ones.
+
+    Use case: extractor was upgraded (new pattern recognized — e.g. <form action>)
+    and you want to surface URLs that were missed without re-crawling from scratch.
+    """
+    import sqlite3
+    from schizospider.extractor import extract_from_html
+
+    out_root = Path(out).resolve()
+    run_dir = out_root / run_id
+    db_path = run_dir / "db.sqlite"
+    if not db_path.exists():
+        click.echo(f"no db at {db_path}", err=True)
+        sys.exit(2)
+
+    # Pull seed so the store can classify on-domain vs off-domain.
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    seed_row = conn.execute("SELECT value FROM meta WHERE key='seed'").fetchone()
+    conn.close()
+    seed = seed_row["value"] if seed_row else "about:blank"
+
+    settings = _make_settings(
+        seed=seed,
+        run_id=run_id,
+        out=out,
+        concurrency=4,
+        politeness_ms=250,
+        host_mode="strict" if strict_host else "registrable",
+        respect_robots=False,
+        block_media=True,
+        headless=True,
+    )
+
+    bus = Bus()
+    store = Store(
+        settings.db_path,
+        seed_url=settings.seed,
+        host_mode=settings.host_mode,
+        bus=bus,
+    )
+    await store.open()
+    pages = await store.list_pages()
+    scanned = 0
+    new_total = 0
+    for p in pages:
+        if not p.html_path:
+            continue
+        html_file = run_dir / p.html_path
+        if not html_file.exists():
+            continue
+        try:
+            raw = html_file.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        outlinks = extract_from_html(raw, p.url_canonical)
+        if outlinks:
+            new_ids = await store.enqueue_many(outlinks, depth=p.depth + 1, src_id=p.id)
+            new_total += len(new_ids)
+        scanned += 1
+    await store.close()
+    click.echo(
+        f"rescanned {scanned} captured pages, enqueued {new_total} newly-discovered URLs"
+    )
+    click.echo(
+        f"resume the crawl to fetch them: schizospider --seed {seed} --run-id {run_id}"
+    )
+
+
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--seed", help="URL to start crawling from.")
 @click.option("--run-id", default=None, help="Run identifier (auto if omitted).")
@@ -152,6 +222,13 @@ async def _console_printer(sub) -> None:
     default=None,
     help="Skip crawling: just (re)build the HTML report for the given run-id.",
 )
+@click.option(
+    "--rescan-html",
+    default=None,
+    help="For the given run-id: re-extract links from already-captured HTML "
+    "on disk (e.g. after upgrading the extractor) and enqueue any new "
+    "discoveries. Then exit — resume the crawl normally to fetch them.",
+)
 @click.option("-v", "--verbose", is_flag=True)
 def main(
     seed: Optional[str],
@@ -166,6 +243,7 @@ def main(
     headed: bool,
     max_pages: int,
     report_only: Optional[str],
+    rescan_html: Optional[str],
     verbose: bool,
 ) -> None:
     """schizospider — crawl weird websites, screenshot every page, produce an HTML report."""
@@ -216,6 +294,10 @@ def main(
             click.echo(f"report: {path}")
 
         asyncio.run(_build())
+        return
+
+    if rescan_html:
+        asyncio.run(_rescan_html(rescan_html, out, strict_host))
         return
 
     if not seed:

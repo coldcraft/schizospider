@@ -27,6 +27,12 @@ _JS_URL_RE = re.compile(
     r"""(?:window\.open|location\s*(?:\.href)?\s*=|location\.replace)\s*\(?\s*['"]([^'"]+)['"]""",
     re.IGNORECASE,
 )
+# Form-action URLs embedded inside script bodies (e.g. jodi's document.write
+# scheme that picks one of N "<form action='wN.html'>" alternates randomly).
+_JS_FORM_ACTION_RE = re.compile(
+    r"""<form\b[^>]*?\baction\s*=\s*(?:\\?['"])([^'"\\]+)(?:\\?['"])""",
+    re.IGNORECASE,
+)
 _META_REFRESH_RE = re.compile(
     r"""(?i)^\s*\d+\s*;\s*url\s*=\s*['"]?([^'"\s]+)['"]?\s*$"""
 )
@@ -187,6 +193,11 @@ def extract_js_urls(raw: str) -> list[str]:
         return []
     found: list[str] = []
     for m in _JS_URL_RE.finditer(raw):
+        candidate = m.group(1).strip()
+        if candidate and not candidate.startswith("javascript:"):
+            found.append(candidate)
+    # Form-action URLs embedded inside script bodies (jodi's pattern).
+    for m in _JS_FORM_ACTION_RE.finditer(raw):
         candidate = m.group(1).strip()
         if candidate and not candidate.startswith("javascript:"):
             found.append(candidate)

@@ -50,3 +50,29 @@ def test_links_html_mix():
     # js extracted URLs
     assert "http://example.com/jspopup.html" in urls
     assert "http://example.com/after-redirect.html" in urls
+
+
+# Real jodi.org pattern: random JS picks one of N forms to document.write,
+# and the rendered DOM contains the selected form. We want both the rendered
+# action AND every alternate action that appears in the script body.
+JODI_FORMS_HTML = """
+<html><body>
+<script>
+if (x > .95) document.write("<form action='w1.html'><input TYPE='submit' value='SELECT'></form>");
+if (x > .85) document.write("<form action='w2.html'><input TYPE='submit' value='SELECT'></form>");
+if (x > .75) document.write("<form action='w3.html'><input TYPE='submit' value='SELECT'></form>");
+</script>
+<form action="w8.html"><input type="submit" value="SELECT"></form>
+</body></html>
+"""
+
+
+def test_form_action_extracted_from_dom_and_script():
+    out = extract_from_html(JODI_FORMS_HTML, "http://example.com/")
+    urls = [u for u, _, _ in out]
+    # Rendered form's action (in the DOM):
+    assert "http://example.com/w8.html" in urls
+    # All three alternates from the inline script body:
+    assert "http://example.com/w1.html" in urls
+    assert "http://example.com/w2.html" in urls
+    assert "http://example.com/w3.html" in urls

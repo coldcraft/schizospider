@@ -31,6 +31,11 @@ _HARVEST_JS = r"""
     for (const f of document.querySelectorAll("iframe[src]")) {
         push(f.getAttribute("src"), f.getAttribute("title"), "iframe");
     }
+    // <form action="..."> -- submit buttons effectively navigate. jodi.org
+    // uses these as primary navigation in some pieces.
+    for (const f of document.querySelectorAll("form[action]")) {
+        push(f.getAttribute("action"), "form-submit", "form");
+    }
     for (const l of document.querySelectorAll("link[rel='alternate'][href], link[rel='canonical'][href]")) {
         push(l.getAttribute("href"), l.getAttribute("rel"), "link");
     }
@@ -148,6 +153,7 @@ def extract_from_html(html: str, base_url: str) -> list[tuple[str, str, str]]:
     area_rx  = re.compile(r"""<area\b[^>]*?\bhref\s*=\s*(['"])(.*?)\1""", re.I)
     frame_rx = re.compile(r"""<frame\b[^>]*?\bsrc\s*=\s*(['"])(.*?)\1""", re.I)
     iframe_rx = re.compile(r"""<iframe\b[^>]*?\bsrc\s*=\s*(['"])(.*?)\1""", re.I)
+    form_rx  = re.compile(r"""<form\b[^>]*?\baction\s*=\s*(['"])(.*?)\1""", re.I)
 
     for m in a_rx.finditer(html):
         _absorb(m.group(2), _strip_tags(m.group(3)), "a", base_url, seen, out)
@@ -157,8 +163,11 @@ def extract_from_html(html: str, base_url: str) -> list[tuple[str, str, str]]:
         _absorb(m.group(2), "", "frame", base_url, seen, out)
     for m in iframe_rx.finditer(html):
         _absorb(m.group(2), "", "iframe", base_url, seen, out)
+    for m in form_rx.finditer(html):
+        _absorb(m.group(2), "form-submit", "form", base_url, seen, out)
 
-    # Inline <script> bodies.
+    # Inline <script> bodies. extract_js_urls also catches form-action literals
+    # inside the body (used by jodi-style document.write navigation).
     for m in re.finditer(r"<script[^>]*>(.*?)</script>", html, re.I | re.S):
         for js_url in extract_js_urls(m.group(1)):
             _absorb(js_url, "(js)", "js", base_url, seen, out)
